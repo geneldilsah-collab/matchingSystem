@@ -1,0 +1,187 @@
+import { useCallback, useEffect, useMemo, useState } from 'react';
+import { USERS, defaultApplicants, defaultFacilities } from './data';
+import Icon from './components/Icon';
+import Dashboard from './views/Dashboard';
+import Search from './views/Search';
+import Matching from './views/Matching';
+import Applicants from './views/Applicants';
+import Facilities from './views/Facilities';
+import MyFacility from './views/MyFacility';
+import Roadmap from './views/Roadmap';
+import FacilityDetail from './views/FacilityDetail';
+
+const STORAGE_KEY = 'care-match-demo-v1';
+
+const NAV = {
+  admin: [
+    { key: 'dashboard', label: 'ホーム', icon: 'home' },
+    { key: 'search', label: '施設検索', icon: 'search' },
+    { key: 'match', label: 'マッチング', icon: 'spark' },
+    { key: 'applicants', label: '入居希望者', icon: 'users' },
+    { key: 'facilities', label: '施設管理', icon: 'building' },
+    { key: 'roadmap', label: '開発計画', icon: 'map' }
+  ],
+  staff: [
+    { key: 'dashboard', label: 'ホーム', icon: 'home' },
+    { key: 'search', label: '施設検索', icon: 'search' },
+    { key: 'match', label: 'マッチング', icon: 'spark' },
+    { key: 'applicants', label: '入居希望者', icon: 'users' }
+  ],
+  facility: [
+    { key: 'myfacility', label: '自施設の管理', icon: 'building' },
+    { key: 'search', label: '施設一覧', icon: 'search' }
+  ]
+};
+
+const initial = () => ({ facilities: defaultFacilities, applicants: defaultApplicants, history: [] });
+
+function load() {
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY);
+    return raw ? { ...initial(), ...JSON.parse(raw) } : initial();
+  } catch {
+    return initial();
+  }
+}
+
+// URL から初期表示を決める（例：?as=sato#/match）。共有リンクやデモ説明用。
+function initialRoute() {
+  const params = new URLSearchParams(window.location.search);
+  const as = USERS.find((u) => u.id === params.get('as')) ?? USERS[0];
+  const hash = window.location.hash.replace('#/', '');
+  const page = NAV[as.role].some((n) => n.key === hash) ? hash : NAV[as.role][0].key;
+  return { userId: as.id, page };
+}
+
+export default function App() {
+  const [data, setData] = useState(load);
+  const [userId, setUserId] = useState(() => initialRoute().userId);
+  const [page, setPage] = useState(() => initialRoute().page);
+
+  useEffect(() => {
+    window.history.replaceState(null, '', `${window.location.pathname}${window.location.search}#/${page}`);
+  }, [page]);
+  const [matchTarget, setMatchTarget] = useState(null);
+  const [detailId, setDetailId] = useState(null);
+  const [toasts, setToasts] = useState([]);
+
+  useEffect(() => {
+    try { localStorage.setItem(STORAGE_KEY, JSON.stringify(data)); } catch { /* 保存できない環境では無視 */ }
+  }, [data]);
+
+  const user = USERS.find((u) => u.id === userId);
+  const nav = NAV[user.role];
+
+  const toast = useCallback((message, tone = 'ok') => {
+    const id = Math.random().toString(36).slice(2);
+    setToasts((t) => [...t, { id, message, tone }]);
+    setTimeout(() => setToasts((t) => t.filter((x) => x.id !== id)), 3200);
+  }, []);
+
+  const update = useCallback((key, fn) => setData((d) => ({ ...d, [key]: fn(d[key]) })), []);
+
+  const switchUser = (id) => {
+    const next = USERS.find((u) => u.id === id);
+    setUserId(id);
+    setPage(NAV[next.role][0].key);
+    setMatchTarget(null);
+    toast(`${next.label}（${next.name}）として表示しています`, 'info');
+  };
+
+  const go = (key, opts = {}) => {
+    if (opts.applicantId) setMatchTarget(opts.applicantId);
+    setPage(key);
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  };
+
+  const ctx = useMemo(
+    () => ({ ...data, update, user, toast, go, openFacility: setDetailId }),
+    [data, update, user, toast]
+  );
+
+  const reset = () => {
+    setData(initial());
+    toast('デモデータを初期状態に戻しました', 'info');
+  };
+
+  const pages = {
+    dashboard: <Dashboard ctx={ctx} />,
+    search: <Search ctx={ctx} />,
+    match: <Matching ctx={ctx} targetId={matchTarget} setTargetId={setMatchTarget} />,
+    applicants: <Applicants ctx={ctx} />,
+    facilities: <Facilities ctx={ctx} />,
+    myfacility: <MyFacility ctx={ctx} />,
+    roadmap: <Roadmap />
+  };
+
+  const detail = data.facilities.find((f) => f.id === detailId);
+
+  return (
+    <div className="shell">
+      <aside className="sidebar">
+        <div className="brand">
+          <div className="brand-mark"><Icon name="heart" size={20} stroke={2.4} /></div>
+          <div>
+            <b>ケアマッチ</b>
+            <small>介護施設マッチング</small>
+          </div>
+        </div>
+        <nav className="side-nav">
+          {nav.map((n) => (
+            <button key={n.key} type="button" className={page === n.key ? 'is-active' : ''} onClick={() => go(n.key)}>
+              <Icon name={n.icon} />
+              <span>{n.label}</span>
+            </button>
+          ))}
+        </nav>
+        <div className="side-card">
+          <div className="side-card-title"><Icon name="shield" size={16} />表示ユーザー（デモ）</div>
+          <p>役割ごとに見える情報と操作が変わります。</p>
+          <div className="role-list">
+            {USERS.map((u) => (
+              <button key={u.id} type="button" className={u.id === userId ? 'is-active' : ''} onClick={() => switchUser(u.id)}>
+                <span className={`avatar role-${u.role}`}>{u.name[0]}</span>
+                <span><b>{u.name}</b><small>{u.label}</small></span>
+              </button>
+            ))}
+          </div>
+          <button type="button" className="link-btn" onClick={reset}><Icon name="refresh" size={14} />デモデータを初期化</button>
+        </div>
+      </aside>
+
+      <div className="main">
+        <header className="topbar">
+          <div className="topbar-brand">
+            <div className="brand-mark sm"><Icon name="heart" size={16} stroke={2.4} /></div>
+            <b>ケアマッチ</b>
+          </div>
+          <div className="topbar-title">{nav.find((n) => n.key === page)?.label}</div>
+          <label className="user-switch">
+            <span className={`avatar role-${user.role}`}>{user.name[0]}</span>
+            <span className="user-meta"><b>{user.name}</b><small>{user.label}</small></span>
+            <select value={userId} onChange={(e) => switchUser(e.target.value)} aria-label="表示ユーザーを切り替え">
+              {USERS.map((u) => <option key={u.id} value={u.id}>{u.label}：{u.name}</option>)}
+            </select>
+          </label>
+        </header>
+
+        <main className="content" key={`${page}-${userId}`}>{pages[page]}</main>
+      </div>
+
+      <nav className="tabbar">
+        {nav.slice(0, 5).map((n) => (
+          <button key={n.key} type="button" className={page === n.key ? 'is-active' : ''} onClick={() => go(n.key)}>
+            <Icon name={n.icon} size={20} />
+            <span>{n.label}</span>
+          </button>
+        ))}
+      </nav>
+
+      {detail && <FacilityDetail ctx={ctx} facility={detail} onClose={() => setDetailId(null)} />}
+
+      <div className="toasts" role="status" aria-live="polite">
+        {toasts.map((t) => <div key={t.id} className={`toast toast-${t.tone}`}><Icon name={t.tone === 'warn' ? 'alert' : 'check'} size={16} />{t.message}</div>)}
+      </div>
+    </div>
+  );
+}
